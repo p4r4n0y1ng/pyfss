@@ -1,18 +1,71 @@
-from json import JSONDecodeError
-
 import requests
 import re
 import json
 import logging
 import os
+from json import JSONDecodeError
 from datetime import datetime, timedelta
 from typing import Any
+
+
+class RequestResponse(object):
+    """Simple wrapper around the request response object so debugging and logging can be done with simplicity"""
+
+    def __init__(self) -> None:
+        self._identifier: int = 0
+        self._request_string: str = "REQUEST:"
+        self._response_string: str = "RESPONSE:"
+        self._request_json: str | None = None
+        self._response_json: str | None = None
+        self._error_msg: str | None = None
+
+    def reset(self) -> None:
+        self._request_string = "REQUEST:"
+        self.error_msg = None
+        self.response_json = None
+        self.request_json = None
+
+    @property
+    def request_string(self) -> str:
+        return self._request_string
+
+    @request_string.setter
+    def request_string(self, val: str) -> None:
+        self._request_string = val
+
+    @property
+    def response_string(self) -> str:
+        return self._response_string
+
+    @property
+    def request_json(self) -> str:
+        return self._request_json
+
+    @request_json.setter
+    def request_json(self, val: str):
+        self._request_json = val
+
+    @property
+    def response_json(self) -> str:
+        return self._response_json
+
+    @response_json.setter
+    def response_json(self, val: str):
+        self._response_json = val
+
+    @property
+    def error_msg(self) -> str:
+        return self._error_msg
+
+    @error_msg.setter
+    def error_msg(self, val: str):
+        self._error_msg = val
 
 
 class FortiSASE(object):
     def __init__(self, login_token: str, instance_hostname: str | None = None, debug: bool = False,
                  request_timeout: float = 300.0, disable_request_warnings: bool = False, use_ssl: bool = True,
-                 logger: logging.Logger = None):
+                 logger: logging.Logger = None) -> None:
         super(FortiSASE, self).__init__()
         self._debug = debug
         self._headers = {"Content-Type": "application/json", }
@@ -172,7 +225,7 @@ class FortiSASE(object):
                 body["password"] = self._apiPassword,
                 body["client_secret"] = ""
             self.log(f"Making {'refresh' if refresh else 'initial'} request to for oauth token")
-            resp = requests.post(oauth_token_path, data=body)
+            resp = requests.post(oauth_token_path, headers=self._headers, data=body)
             try:
                 json_resp = resp.json()
                 self.log(f"Received session token: {json_resp.get('access_token', 'Invalid Access Token')}. Token "
@@ -229,14 +282,13 @@ class FortiSASE(object):
             self._refresh_token = None
 
     def revoke_token(self) -> None:
-        # does not currently work
         oauth_token_path = "https://customerapiauth.fortinet.com/api/v1/oauth/revoke_token/"
         if self._session_token is not None:
             body = dict()
             body["client_id"] = "FortiSASE"
             body["token"] = self._session_token
             self.log(f"Making revocation attempt to revoke current token")
-            resp = requests.post(oauth_token_path, data=body)
+            resp = requests.post(oauth_token_path, headers=self._headers, json=body)
             if resp.status_code == 200:
                 self.log(f"Revoked token successfully")
             else:
