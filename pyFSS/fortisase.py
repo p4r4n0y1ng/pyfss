@@ -340,11 +340,12 @@ class FortiSASE(object):
         code = response.get("code", -1)
         return code, data
 
-    def _post_request(self, method: str, url: str, params: dict[str | Any]):
+    def _post_request(self, method: str, url: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
         if self._access_token is None:
-            self.log(f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
-                     f"instance without a valid access token being available.", log_level=logging.CRITICAL)
-            return
+            msg = (f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
+                   f"instance without a valid access token being available.")
+            self.log(msg, log_level=logging.CRITICAL)
+            return -1, msg
         if self._headers.get("Authorization", None) is None:
             self.add_header("Authorization", "Bearer " + self.access_token)
         self.req_resp_object.reset()
@@ -365,9 +366,11 @@ class FortiSASE(object):
                                           timeout=self._request_timeout)
         except:
             # todo: add exceptions
-            self.log("Exception caught")
-            self.req_resp_object.error_msg = "Exception caught"
+            msg = "Exception caught"
+            self.log(msg, log_level=logging.ERROR)
+            self.req_resp_object.error_msg = msg
             self.dprint()
+            return -1, msg
         return self._handle_response(response)
 
     def common_datagram_params(self, url, **kwargs) -> dict[str, Any]:
@@ -379,14 +382,14 @@ class FortiSASE(object):
             params.update(kwargs)
         return params
 
-    def get(self, url, *args, **kwargs):
+    def get(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
         return self._post_request("get", url, self.common_datagram_params(url, **kwargs))
 
-    def post(self, url, *args, **kwargs):
+    def post(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
         return self._post_request("post", url, self.common_datagram_params(url, **kwargs))
 
-    def put(self, url, *args, **kwargs):
+    def put(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
         return self._post_request("put", url, self.common_datagram_params(url, **kwargs))
 
-    def delete(self, url, *args, **kwargs):
+    def delete(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
         return self._post_request("delete", url, self.common_datagram_params(url, **kwargs))
