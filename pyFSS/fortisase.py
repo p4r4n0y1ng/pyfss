@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 
 class RequestResponse(object):
     """Simple wrapper around the request response object so debugging and logging can be done with simplicity"""
-
     def __init__(self) -> None:
         self._identifier: int = 0
         self._request_string: str = "REQUEST:"
@@ -64,9 +63,9 @@ class RequestResponse(object):
         self._error_msg = val
 
 
-class FortiSASE_formatter(object):
+class FortiSASEFormatter(object):
     def __init__(self, format_string_input: str) -> None:
-        super(FortiSASE_formatter, self).__init__()
+        super(FortiSASEFormatter, self).__init__()
         self._format_string_input = format_string_input
         self._filter_string = ""
         self._format_string = ""
@@ -92,10 +91,10 @@ class FortiSASE_formatter(object):
             # input is incorrect
             return response_to_format
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self._format_string}&{self._filter_string}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self._format_string}&{self._filter_string}"
 
 class FortiSASE(object):
@@ -121,7 +120,7 @@ class FortiSASE(object):
         self._refresh_token: str | None = None
         self._request_timeout = request_timeout
         self._session: requests.Session | None = None
-        self._formatter: FortiSASE_formatter | None = None
+        self._formatter: FortiSASEFormatter | None = None
         self._req_resp_object = RequestResponse()
         if disable_request_warnings:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -178,7 +177,7 @@ class FortiSASE(object):
         p_url = urlparse(u)
         self._url = f"{p_url.scheme}://{p_url.netloc}{p_url.path if p_url.path.startswith("/") else '/' + p_url.path}"
         if p_url.query != "":
-            self._formatter = FortiSASE_formatter(p_url.query)
+            self._formatter = FortiSASEFormatter(p_url.query)
 
     def add_header(self, key: str | None = None, value: str | None = None, **kwargs: str) -> None:
         if key is not None and value is not None:
@@ -440,7 +439,6 @@ class FortiSASE(object):
         return self._post_request("get", self.common_datagram_params(url, **kwargs))
 
     def post(self, url: str, **kwargs) -> tuple[int, str | dict[str, str | int]]:
-        self._formatter = None
         return self._post_request("post", self.common_datagram_params(url, **kwargs))
 
     def put(self, url: str, **kwargs) -> tuple[int, str | dict[str, str | int]]:
