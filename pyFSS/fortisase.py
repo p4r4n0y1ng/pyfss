@@ -65,32 +65,37 @@ class RequestResponse(object):
 class FortiSASE(object):
     def __init__(self, login_token: str, instance_hostname: str | None = None, debug: bool = False,
                  request_timeout: float = 300.0, disable_request_warnings: bool = False, use_ssl: bool = True,
-                 logger: logging.Logger = None) -> None:
+                 verify_ssl: bool = True, logger: logging.Logger = None) -> None:
         super(FortiSASE, self).__init__()
         self._debug = debug
-        self._headers = {"Content-Type": "application/json", }
+        self._headers = {"content-Type": "application/json", }
         self._use_ssl = use_ssl
+        self._verify_ssl = verify_ssl
         self._logger = logger
         self._apiId: str | None = None
         self._apiPassword: str | None = None
         self._scheme = "https" if use_ssl else "http"
         self._instance_hostname = instance_hostname
         self._base_url: str =  self._get_base_url()
+        self._url: str = ""
         self._login_token = login_token
         self._session_token_timeout: float = -1.0
-        self._session_token: str | None = None
+        self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._request_timeout = request_timeout
-        self._session: requests.Session = requests.session()
+        self._session: requests.Session | None = None
+        self._req_resp_object = RequestResponse()
         if disable_request_warnings:
             requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
-        # self._req_resp_object = RequestResponse()
 
     def _get_base_url(self) -> str:
         # method here only to provide a means to have different base_urls in the future
         prod_base_url = "portal.prod.fortisase.com"
         if self._instance_hostname is None:
             self._instance_hostname = prod_base_url
+        else:
+            self._instance_hostname = self._instance_hostname[:-1] if self._instance_hostname.endswith("/") else (
+                self._instance_hostname)
 
         self.log(f"Setting instance hostname to {self._instance_hostname}")
         self.log(f"Setting base URL to {self._scheme}://{self._instance_hostname}/")
@@ -113,18 +118,24 @@ class FortiSASE(object):
         self.request_timeout = val
 
     @property
-    def sess(self) -> requests.Session:
+    def sase_session(self) -> requests.Session:
+        if self._session is None:
+            with requests.sessions.session() as sess:
+                self._session = sess
         return self._session
 
     @property
-    def session_token(self) -> str:
-        if self._session_token is None:
+    def access_token(self) -> str | None:
+        if self._access_token is None:
             self.get_token(self._login_token)
-        return self._session_token
+        return self._access_token
 
     @property
     def session_token_times_out(self) -> bool:
         return False if self._session_token_timeout == -1.0 else True
+
+    def set_url(self, url: str):
+        self._url = f"{self._base_url}{'' if self._base_url.endswith('/') else '/'}{url[1:] if url.startswith("/") else url}"
 
     def add_header(self, key: str | None = None, value: str | None = None, **kwargs: str) -> None:
         if key is not None and value is not None:
@@ -169,9 +180,14 @@ class FortiSASE(object):
         if self._logger is not None:
             self._logger.removeHandler(handler)
 
-    def log(self, msg: str) -> None:
+    def log(self, msg: str, log_level: int = -1) -> None:
+        level = log_level if log_level >= 0 else self._logger.level
         if self._logger is not None:
-            self._logger.log(self._logger.level, msg)
+            self._logger.log(level, msg)
+
+    @property
+    def req_resp_object(self):
+        return self._req_resp_object
 
     @staticmethod
     def jprint(json_obj: Any) -> str:
@@ -225,20 +241,20 @@ class FortiSASE(object):
                 body["password"] = self._apiPassword,
                 body["client_secret"] = ""
             self.log(f"Making {'refresh' if refresh else 'initial'} request to for oauth token")
-            resp = requests.post(oauth_token_path, headers=self._headers, data=body)
+            resp = self.sase_session.post(oauth_token_path, data=body)
             try:
                 json_resp = resp.json()
                 self.log(f"Received session token: {json_resp.get('access_token', 'Invalid Access Token')}. Token "
                          f"expires at {datetime.now() + timedelta(seconds=json_resp.get('expires_in', 0.0))}")
                 self.log(f"Received refresh token: {json_resp.get('refresh_token', 'Invalid Refresh Token')}")
                 self.log(f"Auth Message was: {json_resp.get('message', 'Invalid Message')}")
-                self._session_token = json_resp.get('access_token', None)
+                self._access_token = json_resp.get('access_token', None)
                 self._refresh_token = json_resp.get('refresh_token', None)
                 self._session_token_timeout = datetime.now() + timedelta(seconds=json_resp.get("expires_in", 0.0))
             except JSONDecodeError:
                 self.log(f"Failed to get access token. Received JSON Decode Error when requesting information "
                          f"from {oauth_token_path}")
-                self._session_token = None
+                self._access_token = None
                 self._refresh_token = None
                 self._session_token_timeout = -1.0
         else:
@@ -257,7 +273,7 @@ class FortiSASE(object):
                             self.log(f"Retrieved api password from {file_path}")
                         else:
                             self.log(f"Retrieving token from {file_path}")
-                            self._session_token = line
+                            self._access_token = line
                             self._session_token_timeout = -1.0
                 self._get_oauth_token()
             except OSError:
@@ -277,29 +293,29 @@ class FortiSASE(object):
         else:
             # assuming the string sent in is the hard coded token
             self.log(f"Setting token provided in login request as access token")
-            self._session_token = token_provided
+            self._access_token = token_provided
             self._session_token_timeout = -1.0
             self._refresh_token = None
 
     def revoke_token(self) -> None:
         oauth_token_path = "https://customerapiauth.fortinet.com/api/v1/oauth/revoke_token/"
-        if self._session_token is not None:
+        if self._access_token is not None:
             body = dict()
             body["client_id"] = "FortiSASE"
-            body["token"] = self._session_token
+            body["token"] = self._access_token
             self.log(f"Making revocation attempt to revoke current token")
-            resp = requests.post(oauth_token_path, headers=self._headers, json=body)
+            resp = self.sase_session.post(oauth_token_path, headers=self._headers, json=body)
             if resp.status_code == 200:
                 self.log(f"Revoked token successfully")
             else:
                 self.log(f"Revocation of current token was unsuccessful. This is not an error message, possibly the "
                          f"token was already timed out or not valid")
         self._refresh_token = None
-        self._session_token = None
+        self._access_token = None
         self._session_token_timeout = -1.0
 
     def login(self) -> None:
-        if self._session_token is None:
+        if self._access_token is None:
             self.get_token(self._login_token)
 
     def logout(self) -> None:
@@ -312,14 +328,65 @@ class FortiSASE(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.logout()
 
-    # def get(self, url, *args, **kwargs):
-    #     return self._post_request("get", self.common_datagram_params("get", url, *args, **kwargs))
-    #
-    # def post(self, url, *args, **kwargs):
-    #     return self._post_request("add", self.common_datagram_params("add", url, *args, **kwargs))
-    #
-    # def delete(self, url, *args, **kwargs):
-    #     return self._post_request("update", self.common_datagram_params("update", url, *args, **kwargs))
-    #
-    # def put(self, url, *args, **kwargs):
-    #     return self._post_request("set", self.common_datagram_params("set", url, *args, **kwargs))
+    def _handle_response(self, resp: requests.Response) -> tuple[int, str | dict[str, str | int]]:
+        try:
+            response = resp.json()
+        except:
+            # response not decoded into json return -1 as a code and the response objects text output
+            return -1, resp.text
+        data = response.get("data", {})
+        self.req_resp_object.response_json = data
+        self.dprint()
+        code = response.get("code", -1)
+        return code, data
+
+    def _post_request(self, method: str, url: str, params: dict[str | Any]):
+        if self._access_token is None:
+            self.log(f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
+                     f"instance without a valid access token being available.", log_level=logging.CRITICAL)
+            return
+        if self._headers.get("Authorization", None) is None:
+            self.add_header("Authorization", "Bearer " + self.access_token)
+        self.req_resp_object.reset()
+        json_request = {}
+        response = None
+        self.req_resp_object.request_json = json_request
+        try:
+            if params:
+                json_request.update(params)
+            method_to_call = getattr(self.sase_session, method)
+            self.req_resp_object.request_string = f"{method.upper()} REQUEST: {self._url}"
+            self.req_resp_object.request_json = json_request
+            if json_request:
+                response = method_to_call(self._url, headers=self._headers, data=json.dumps(json_request),
+                                          verify=self._verify_ssl, timeout=self._request_timeout)
+            else:
+                response = method_to_call(self._url, headers=self._headers, verify=self._verify_ssl,
+                                          timeout=self._request_timeout)
+        except:
+            # todo: add exceptions
+            self.log("Exception caught")
+            self.req_resp_object.error_msg = "Exception caught"
+            self.dprint()
+        return self._handle_response(response)
+
+    def common_datagram_params(self, url, **kwargs) -> dict[str, Any]:
+        self.set_url(url)
+        params = {}
+        if kwargs:
+            for key, val in kwargs.items():
+                kwargs[key.replace("__", "-")] = kwargs.pop(key)
+            params.update(kwargs)
+        return params
+
+    def get(self, url, *args, **kwargs):
+        return self._post_request("get", url, self.common_datagram_params(url, **kwargs))
+
+    def post(self, url, *args, **kwargs):
+        return self._post_request("post", url, self.common_datagram_params(url, **kwargs))
+
+    def put(self, url, *args, **kwargs):
+        return self._post_request("put", url, self.common_datagram_params(url, **kwargs))
+
+    def delete(self, url, *args, **kwargs):
+        return self._post_request("delete", url, self.common_datagram_params(url, **kwargs))
