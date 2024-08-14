@@ -430,9 +430,7 @@ class FortiSASE(object):
         self.set_url(url)
         params = {}
         if kwargs:
-            for key, val in kwargs.items():
-                kwargs[key.replace("__", "-")] = kwargs.pop(key)
-            params.update(kwargs)
+            params = {k.replace("__", "-"): v for k, v in kwargs.items()}
         return params
 
     def get(self, url: str, **kwargs) -> tuple[int, str | dict[str, str | int]]:
