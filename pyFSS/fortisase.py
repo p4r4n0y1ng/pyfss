@@ -1,4 +1,5 @@
 import requests
+import urllib3
 import re
 import json
 import logging
@@ -86,7 +87,7 @@ class FortiSASE(object):
         self._session: requests.Session | None = None
         self._req_resp_object = RequestResponse()
         if disable_request_warnings:
-            requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def _get_base_url(self) -> str:
         # method here only to provide a means to have different base_urls in the future
