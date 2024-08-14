@@ -82,6 +82,7 @@ class FortiSASE(object):
         self._login_token = login_token
         self._session_token_timeout: float = -1.0
         self._access_token: str | None = None
+        self._access_token_is_hard_token: bool = False
         self._refresh_token: str | None = None
         self._request_timeout = request_timeout
         self._session: requests.Session | None = None
@@ -140,7 +141,6 @@ class FortiSASE(object):
 
     def add_header(self, key: str | None = None, value: str | None = None, **kwargs: str) -> None:
         if key is not None and value is not None:
-            self.log(f"Adding header: {key}={value}")
             kwargs.update({key: value})
         if kwargs:
             self.log(f"Adding headers: {kwargs}")
@@ -198,34 +198,32 @@ class FortiSASE(object):
             return json.dumps({"Type Information": str(te)})
 
     def dlog(self) -> None:
-        pass
-        # if self._logger is not None:
-        #     if self.req_resp_object.error_msg is not None:
-        #         self._logger.log(logging.INFO, self.req_resp_object.error_msg)
-        #         return
-        #     self._logger.log(logging.INFO, self.req_resp_object.request_string)
-        #     if self.req_resp_object.request_json is not None:
-        #         self._logger.log(logging.INFO, self.jprint(self.req_resp_object.request_json))
-        #     self._logger.log(logging.INFO, self.req_resp_object.response_string)
-        #     if self.req_resp_object.response_json is not None:
-        #         self._logger.log(logging.INFO, self.jprint(self.req_resp_object.response_json))
+        if self._logger is not None:
+            if self.req_resp_object.error_msg is not None:
+                self._logger.log(logging.ERROR, self.req_resp_object.error_msg)
+                return
+            self._logger.log(logging.INFO, self.req_resp_object.request_string)
+            if self.req_resp_object.request_json is not None:
+                self._logger.log(logging.INFO, self.jprint(self.req_resp_object.request_json))
+            self._logger.log(logging.INFO, self.req_resp_object.response_string)
+            if self.req_resp_object.response_json is not None:
+                self._logger.log(logging.INFO, self.jprint(self.req_resp_object.response_json))
 
     def dprint(self) -> None:
-        pass
-        # self.dlog()
-        # if not self.debug:
-        #     return
-        # if self.req_resp_object.error_msg is not None:
-        #     print(self.req_resp_object.error_msg)
-        #     return
-        # print("-" * 100 + "\n")
-        # print(self.req_resp_object.request_string)
-        # if self.req_resp_object.request_json is not None:
-        #     print(self.jprint(self.req_resp_object.request_json))
-        # print("\n" + self.req_resp_object.response_string)
-        # if self.req_resp_object.response_json is not None:
-        #     print(self.jprint(self.req_resp_object.response_json))
-        # print("\n" + "-" * 100 + "\n")
+        self.dlog()
+        if not self.debug:
+            return
+        if self.req_resp_object.error_msg is not None:
+            print(self.req_resp_object.error_msg)
+            return
+        print("-" * 100 + "\n")
+        print(self.req_resp_object.request_string)
+        if self.req_resp_object.request_json is not None:
+            print(self.jprint(self.req_resp_object.request_json))
+        print("\n" + self.req_resp_object.response_string)
+        if self.req_resp_object.response_json is not None:
+            print(self.jprint(self.req_resp_object.response_json))
+        print("\n" + "-" * 100 + "\n")
 
     def _get_oauth_token(self, refresh: bool = False) -> None:
         oauth_token_path = "https://customerapiauth.fortinet.com/api/v1/oauth/token/"
@@ -269,6 +267,7 @@ class FortiSASE(object):
                         if "apiId" in line:
                             self._apiId = line.split(":")[1].strip()
                             self.log(f"Retrieved apiId from {file_path}")
+                            self._access_token_is_hard_token = False
                         elif "password" in line:
                             self._apiPassword = line.split(":")[1].strip()
                             self.log(f"Retrieved api password from {file_path}")
@@ -276,7 +275,9 @@ class FortiSASE(object):
                             self.log(f"Retrieving token from {file_path}")
                             self._access_token = line
                             self._session_token_timeout = -1.0
-                self._get_oauth_token()
+                            self._access_token_is_hard_token = True
+                if not self._access_token_is_hard_token:
+                    self._get_oauth_token()
             except OSError:
                 self.log(f"Received an OSError when attempting to open file {file_path}")
         else:
@@ -291,10 +292,12 @@ class FortiSASE(object):
             self._get_token_from_file(token_provided)
         elif re.search(email_regex, token_provided):
             self._get_oauth_token()
+            self._access_token_is_hard_token = False
         else:
             # assuming the string sent in is the hard coded token
             self.log(f"Setting token provided in login request as access token")
             self._access_token = token_provided
+            self._access_token_is_hard_token = True
             self._session_token_timeout = -1.0
             self._refresh_token = None
 
@@ -304,13 +307,14 @@ class FortiSASE(object):
             body = dict()
             body["client_id"] = "FortiSASE"
             body["token"] = self._access_token
-            self.log(f"Making revocation attempt to revoke current token")
-            resp = self.sase_session.post(oauth_token_path, headers=self._headers, json=body)
-            if resp.status_code == 200:
-                self.log(f"Revoked token successfully")
-            else:
-                self.log(f"Revocation of current token was unsuccessful. This is not an error message, possibly the "
-                         f"token was already timed out or not valid")
+            if not self._access_token_is_hard_token:
+                self.log(f"Making revocation attempt to revoke current token")
+                resp = self.sase_session.post(oauth_token_path, headers=self._headers, json=body)
+                if resp.status_code == 200:
+                    self.log(f"Revoked token successfully")
+                else:
+                    self.log(f"Revocation of current token was unsuccessful. This is not an error message, possibly "
+                             f"the token was already timed out or not valid")
         self._refresh_token = None
         self._access_token = None
         self._session_token_timeout = -1.0
@@ -335,10 +339,13 @@ class FortiSASE(object):
         except:
             # response not decoded into json return -1 as a code and the response objects text output
             return -1, resp.text
-        data = response.get("data", {})
+        code = response.get("code", -1)
+        if code == 200:
+            data = response.get("data", {})
+        else:
+            data = response.get("error", resp.text)
         self.req_resp_object.response_json = data
         self.dprint()
-        code = response.get("code", -1)
         return code, data
 
     def _post_request(self, method: str, url: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
@@ -346,6 +353,8 @@ class FortiSASE(object):
             msg = (f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
                    f"instance without a valid access token being available.")
             self.log(msg, log_level=logging.CRITICAL)
+            self.req_resp_object.error_msg = msg
+            self.dprint()
             return -1, msg
         if self._headers.get("Authorization", None) is None:
             self.add_header("Authorization", "Bearer " + self.access_token)
