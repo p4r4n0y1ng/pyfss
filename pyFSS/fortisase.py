@@ -7,6 +7,7 @@ import os
 from json import JSONDecodeError
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 
 class RequestResponse(object):
@@ -63,6 +64,40 @@ class RequestResponse(object):
         self._error_msg = val
 
 
+class FortiSASE_formatter(object):
+    def __init__(self, format_string_input: str) -> None:
+        super(FortiSASE_formatter, self).__init__()
+        self._format_string_input = format_string_input
+        self._filter_string = ""
+        self._format_string = ""
+        self._load_strings()
+
+    def _load_strings(self) -> None:
+        split_strings = self._format_string_input.split("&")
+        for split_string in split_strings:
+            if split_string.startswith("format="):
+                self._format_string = split_string.split("=")[1]
+            elif split_string.startswith("filter="):
+                self._filter_string = split_string[7:]
+            else:
+                pass
+
+    def provide_format(self, response_to_format: dict[str, Any] | list[dict[str, Any]]) -> dict[str, Any] | list[dict[str, Any]]:
+        keys_to_leave = self._format_string.split("|")
+        if type(response_to_format) is dict:
+            return {k: v for k, v in response_to_format.items() if k in keys_to_leave}
+        elif type(response_to_format) is list:
+            return [{k: v for k, v in i.items() if k in keys_to_leave} for i in response_to_format]
+        else:
+            # input is incorrect
+            return response_to_format
+
+    def __str__(self):
+        return f"{self._format_string}&{self._filter_string}"
+
+    def __repr__(self):
+        return f"{self._format_string}&{self._filter_string}"
+
 class FortiSASE(object):
     def __init__(self, login_token: str, instance_hostname: str | None = None, debug: bool = False,
                  request_timeout: float = 300.0, disable_request_warnings: bool = False, use_ssl: bool = True,
@@ -86,6 +121,7 @@ class FortiSASE(object):
         self._refresh_token: str | None = None
         self._request_timeout = request_timeout
         self._session: requests.Session | None = None
+        self._formatter: FortiSASE_formatter | None = None
         self._req_resp_object = RequestResponse()
         if disable_request_warnings:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -137,7 +173,12 @@ class FortiSASE(object):
         return False if self._session_token_timeout == -1.0 else True
 
     def set_url(self, url: str):
-        self._url = f"{self._base_url}{'' if self._base_url.endswith('/') else '/'}{url[1:] if url.startswith("/") else url}"
+        self._formatter = None
+        u = f"{self._base_url}{'' if self._base_url.endswith('/') else '/'}{url[1:] if url.startswith("/") else url}"
+        p_url = urlparse(u)
+        self._url = f"{p_url.scheme}://{p_url.netloc}{p_url.path if p_url.path.startswith("/") else '/' + p_url.path}"
+        if p_url.query != "":
+            self._formatter = FortiSASE_formatter(p_url.query)
 
     def add_header(self, key: str | None = None, value: str | None = None, **kwargs: str) -> None:
         if key is not None and value is not None:
@@ -341,14 +382,17 @@ class FortiSASE(object):
             return -1, resp.text
         code = response.get("code", -1)
         if code == 200:
-            data = response.get("data", {})
+            if self._formatter is not None:
+                data = self._formatter.provide_format(response.get("data", {}))
+            else:
+                data = response.get("data", {})
         else:
             data = response.get("error", resp.text)
         self.req_resp_object.response_json = data
         self.dprint()
         return code, data
 
-    def _post_request(self, method: str, url: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
+    def _post_request(self, method: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
         if self._access_token is None:
             msg = (f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
                    f"instance without a valid access token being available.")
@@ -392,14 +436,15 @@ class FortiSASE(object):
             params.update(kwargs)
         return params
 
-    def get(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
-        return self._post_request("get", url, self.common_datagram_params(url, **kwargs))
+    def get(self, url: str, **kwargs) -> tuple[int, str | dict[str, str | int]]:
+        return self._post_request("get", self.common_datagram_params(url, **kwargs))
 
-    def post(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
-        return self._post_request("post", url, self.common_datagram_params(url, **kwargs))
+    def post(self, url: str, **kwargs) -> tuple[int, str | dict[str, str | int]]:
+        self._formatter = None
+        return self._post_request("post", self.common_datagram_params(url, **kwargs))
 
-    def put(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
-        return self._post_request("put", url, self.common_datagram_params(url, **kwargs))
+    def put(self, url: str, **kwargs) -> tuple[int, str | dict[str, str | int]]:
+        return self._post_request("put", self.common_datagram_params(url, **kwargs))
 
-    def delete(self, url: str, *args, **kwargs) -> tuple[int, str | dict[str, str | int]]:
-        return self._post_request("delete", url, self.common_datagram_params(url, **kwargs))
+    def delete(self, url: str, **kwargs) -> tuple[int, str | dict[str, str | int]]:
+        return self._post_request("delete", self.common_datagram_params(url, **kwargs))
