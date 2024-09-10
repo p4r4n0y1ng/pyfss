@@ -311,6 +311,7 @@ class FortiSASE(object):
                         elif "password" in line:
                             self._apiPassword = line.split(":")[1].strip()
                             self.log(f"Retrieved api password from {file_path}")
+                            break
                         else:
                             self.log(f"Retrieving token from {file_path}")
                             self._access_token = line
