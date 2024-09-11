@@ -317,6 +317,7 @@ class FortiSASE(object):
                             self._access_token = line
                             self._session_token_timeout = -1.0
                             self._access_token_is_hard_token = True
+                            break
                 if not self._access_token_is_hard_token:
                     self._get_oauth_token()
             except OSError:
@@ -393,6 +394,7 @@ class FortiSASE(object):
         return code, data
 
     def _post_request(self, method: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
+        # todo: check if token is timed out
         if self._access_token is None:
             msg = (f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
                    f"instance without a valid access token being available.")
