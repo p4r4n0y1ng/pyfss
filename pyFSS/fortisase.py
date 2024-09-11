@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from json import JSONDecodeError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, MINYEAR
 from typing import Any
 from urllib.parse import urlparse
 
@@ -114,7 +114,7 @@ class FortiSASE(object):
         self._base_url: str =  self._get_base_url()
         self._url: str = ""
         self._login_token = login_token
-        self._session_token_timeout: float = -1.0
+        self._session_token_timeout: datetime = FortiSASE._get_min_datetime()
         self._access_token: str | None = None
         self._access_token_is_hard_token: bool = False
         self._refresh_token: str | None = None
@@ -137,6 +137,10 @@ class FortiSASE(object):
         self.log(f"Setting instance hostname to {self._instance_hostname}")
         self.log(f"Setting base URL to {self._scheme}://{self._instance_hostname}/")
         return f"{self._scheme}://{self._instance_hostname}/"
+
+    @staticmethod
+    def _get_min_datetime():
+        return datetime(1, 1, 1, 0, 0)
 
     @property
     def debug(self) -> bool:
@@ -267,9 +271,7 @@ class FortiSASE(object):
 
     def _get_oauth_token(self, refresh: bool = False) -> None:
         oauth_token_path = "https://customerapiauth.fortinet.com/api/v1/oauth/token/"
-        if self.session_token_times_out and datetime.now() >= self._session_token_timeout and not refresh:
-            self._get_oauth_token(refresh=True)
-        elif self._apiId is not None and self._apiPassword is not None:
+        if self._apiId is not None and self._apiPassword is not None:
             body = dict()
             body["client_id"] = "FortiSASE"
             body["grant_type"] = "refresh_token" if refresh else "password"
@@ -295,7 +297,7 @@ class FortiSASE(object):
                          f"from {oauth_token_path}")
                 self._access_token = None
                 self._refresh_token = None
-                self._session_token_timeout = -1.0
+                self._session_token_timeout = FortiSASE._get_min_datetime()
         else:
             self.log(f"A request to get an oauth token was made but conditions are not appropriate.")
 
@@ -315,7 +317,7 @@ class FortiSASE(object):
                         else:
                             self.log(f"Retrieving token from {file_path}")
                             self._access_token = line
-                            self._session_token_timeout = -1.0
+                            self._session_token_timeout = FortiSASE._get_min_datetime()
                             self._access_token_is_hard_token = True
                             break
                 if not self._access_token_is_hard_token:
@@ -340,7 +342,7 @@ class FortiSASE(object):
             self.log(f"Setting token provided in login request as access token")
             self._access_token = token_provided
             self._access_token_is_hard_token = True
-            self._session_token_timeout = -1.0
+            self._session_token_timeout = FortiSASE._get_min_datetime()
             self._refresh_token = None
 
     def revoke_token(self) -> None:
@@ -359,7 +361,7 @@ class FortiSASE(object):
                              f"the token was already timed out or not valid")
         self._refresh_token = None
         self._access_token = None
-        self._session_token_timeout = -1.0
+        self._session_token_timeout = FortiSASE._get_min_datetime()
 
     def login(self) -> None:
         if self._access_token is None:
@@ -394,7 +396,8 @@ class FortiSASE(object):
         return code, data
 
     def _post_request(self, method: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
-        # todo: check if token is timed out
+        if self.session_token_times_out and datetime.now() >= self._session_token_timeout:
+            self._get_oauth_token(refresh=True)
         if self._access_token is None:
             msg = (f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
                    f"instance without a valid access token being available.")
