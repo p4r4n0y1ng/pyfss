@@ -167,8 +167,7 @@ class FortiSASE(object):
 
     @property
     def access_token(self) -> str | None:
-        if self._access_token is None:
-            self.get_token(self._login_token)
+        self.login()
         return self._access_token
 
     @property
@@ -395,15 +394,25 @@ class FortiSASE(object):
         self.dprint()
         return code, data
 
-    def _post_request(self, method: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
+    def _check_session_timeout(self) -> None:
         if self.session_token_times_out and datetime.now() >= self._session_token_timeout:
             self._get_oauth_token(refresh=True)
+
+    def _is_invalid_post_request(self, method: str) -> tuple[bool, str]:
         if self._access_token is None:
             msg = (f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
                    f"instance without a valid access token being available.")
             self.log(msg, log_level=logging.CRITICAL)
             self.req_resp_object.error_msg = msg
             self.dprint()
+            return True, msg
+        else:
+            return False, ""
+
+    def _post_request(self, method: str, params: dict[str, Any]) -> tuple[int, str | dict[str, str | int]]:
+        self._check_session_timeout()
+        invalid, msg = self._is_invalid_post_request(method)
+        if invalid:
             return -1, msg
         if self._headers.get("Authorization", None) is None:
             self.add_header("Authorization", "Bearer " + self.access_token)
