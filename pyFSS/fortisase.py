@@ -254,14 +254,14 @@ class FortiSASE(object):
     def dlog(self) -> None:
         if self._logger is not None:
             if self.req_resp_object.error_msg is not None:
-                self._logger.log(logging.ERROR, self.req_resp_object.error_msg)
+                FortiSASE.log(self.req_resp_object.error_msg, self._logger, logging.ERROR)
                 return
-            self._logger.log(logging.INFO, self.req_resp_object.request_string)
+            FortiSASE.log(self.req_resp_object.request_string, self._logger, logging.INFO)
             if self.req_resp_object.request_json is not None:
-                self._logger.log(logging.INFO, self.jprint(self.req_resp_object.request_json))
-            self._logger.log(logging.INFO, self.req_resp_object.response_string)
+                FortiSASE.log(self.jprint(self.req_resp_object.request_json), self._logger, logging.INFO)
+            FortiSASE.log(self.req_resp_object.response_string, self._logger, logging.INFO)
             if self.req_resp_object.response_json is not None:
-                self._logger.log(logging.INFO, self.jprint(self.req_resp_object.response_json))
+                FortiSASE.log(self.jprint(self.req_resp_object.response_json), self._logger, logging.INFO)
 
     def dprint(self) -> None:
         self.dlog()
