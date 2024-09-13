@@ -133,9 +133,9 @@ class FortiSASE(object):
         else:
             self._instance_hostname = self._instance_hostname[:-1] if self._instance_hostname.endswith("/") else (
                 self._instance_hostname)
-
-        self.log(f"Setting instance hostname to {self._instance_hostname}")
-        self.log(f"Setting base URL to {self._scheme}://{self._instance_hostname}/")
+        if self._logger is not None:
+            self.log(f"Setting instance hostname to {self._instance_hostname}")
+            self.log(f"Setting base URL to {self._scheme}://{self._instance_hostname}/")
         return f"{self._scheme}://{self._instance_hostname}/"
 
     @staticmethod
@@ -225,8 +225,8 @@ class FortiSASE(object):
             self._logger.removeHandler(handler)
 
     def log(self, msg: str, log_level: int = -1) -> None:
-        level = log_level if log_level >= 0 else self._logger.level
         if self._logger is not None:
+            level = log_level if log_level >= 0 else self._logger.level
             self._logger.log(level, msg)
 
     @property
