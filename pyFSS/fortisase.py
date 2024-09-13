@@ -1,6 +1,3 @@
-import asyncio
-import aiologger
-from aiologger.levels import LogLevel
 import requests
 import urllib3
 import re
@@ -128,18 +125,6 @@ class FortiSASE(object):
         if disable_request_warnings:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    @staticmethod
-    def log(msg: str, logger: logging.Logger | None = None, log_level: int = 0) -> None:
-        if logger is None:
-            return
-        logger.log(log_level, msg)
-
-    @staticmethod
-    async def async_log(msg: str, logger: aiologger.Logger | None = None, log_level: LogLevel = LogLevel.NOTSET) -> None:
-        if logger is None:
-            return
-        await logger._log(LogLevel.INFO if log_level == LogLevel.NOTSET else log_level, msg, None)
-
     def _get_base_url(self) -> str:
         # method here only to provide a means to have different base_urls in the future
         prod_base_url = "portal.prod.fortisase.com"
@@ -149,10 +134,8 @@ class FortiSASE(object):
             self._instance_hostname = self._instance_hostname[:-1] if self._instance_hostname.endswith("/") else (
                 self._instance_hostname)
         if self._logger is not None:
-            FortiSASE.log(f"Setting instance hostname to {self._instance_hostname}", self._logger,
-                          self._logger.level)
-            FortiSASE.log(f"Setting base URL to {self._scheme}://{self._instance_hostname}/", self._logger,
-                          self._logger.level)
+            self.log(f"Setting instance hostname to {self._instance_hostname}")
+            self.log(f"Setting base URL to {self._scheme}://{self._instance_hostname}/")
         return f"{self._scheme}://{self._instance_hostname}/"
 
     @staticmethod
@@ -203,17 +186,17 @@ class FortiSASE(object):
         if key is not None and value is not None:
             kwargs.update({key: value})
         if kwargs:
-            FortiSASE.log(f"Adding headers: {kwargs}", self._logger, self._logger.level)
+            self.log(f"Adding headers: {kwargs}")
             self._headers.update(kwargs)
 
     def remove_header(self, key: str | None = None, *args: str) -> None:
         for arg in args:
             if self._headers.get(arg, None) is not None:
-                FortiSASE.log(f"Removing header {arg} from {self._headers.get(arg)}", self._logger, self._logger.level)
+                self.log(f"Removing header {arg} from {self._headers.get(arg)}")
                 self._headers.pop(arg)
         if key is not None:
             if self._headers.get(key, None) is not None:
-                FortiSASE.log(f"Removing header {key} from {self._headers.get(key)}", self._logger, self._logger.level)
+                self.log(f"Removing header {key} from {self._headers.get(key)}")
                 self._headers.pop(key)
 
     def get_log(self, logger_name: str = "fss", lvl: int = logging.INFO) -> logging.Logger:
@@ -241,6 +224,11 @@ class FortiSASE(object):
         if self._logger is not None:
             self._logger.removeHandler(handler)
 
+    def log(self, msg: str, log_level: int = -1) -> None:
+        if self._logger is not None:
+            level = log_level if log_level >= 0 else self._logger.level
+            self._logger.log(level, msg)
+
     @property
     def req_resp_object(self):
         return self._req_resp_object
@@ -255,14 +243,14 @@ class FortiSASE(object):
     def dlog(self) -> None:
         if self._logger is not None:
             if self.req_resp_object.error_msg is not None:
-                FortiSASE.log(self.req_resp_object.error_msg, self._logger, logging.ERROR)
+                self._logger.log(logging.ERROR, self.req_resp_object.error_msg)
                 return
-            FortiSASE.log(self.req_resp_object.request_string, self._logger, logging.INFO)
+            self._logger.log(logging.INFO, self.req_resp_object.request_string)
             if self.req_resp_object.request_json is not None:
-                FortiSASE.log(self.jprint(self.req_resp_object.request_json), self._logger, logging.INFO)
-            FortiSASE.log(self.req_resp_object.response_string, self._logger, logging.INFO)
+                self._logger.log(logging.INFO, self.jprint(self.req_resp_object.request_json))
+            self._logger.log(logging.INFO, self.req_resp_object.response_string)
             if self.req_resp_object.response_json is not None:
-                FortiSASE.log(self.jprint(self.req_resp_object.response_json), self._logger, logging.INFO)
+                self._logger.log(logging.INFO, self.jprint(self.req_resp_object.response_json))
 
     def dprint(self) -> None:
         self.dlog()
@@ -292,30 +280,25 @@ class FortiSASE(object):
                 body["username"] = self._apiId,
                 body["password"] = self._apiPassword,
                 body["client_secret"] = ""
-            FortiSASE.log(f"Making {'refresh' if refresh else 'initial'} request to for oauth token", self._logger,
-                          self._logger.level)
+            self.log(f"Making {'refresh' if refresh else 'initial'} request to for oauth token")
             resp = self.sase_session.post(oauth_token_path, data=body)
             try:
                 json_resp = resp.json()
-                FortiSASE.log(f"Received session token: {json_resp.get('access_token', 'Invalid Access Token')}. Token "
-                         f"expires at {datetime.now() + timedelta(seconds=json_resp.get('expires_in', 0.0))}",
-                              self._logger, self._logger.level)
-                FortiSASE.log(f"Received refresh token: {json_resp.get('refresh_token', 'Invalid Refresh Token')}",
-                              self._logger, self._logger.level)
-                FortiSASE.log(f"Auth Message was: {json_resp.get('message', 'Invalid Message')}", self._logger,
-                              self._logger.level)
+                self.log(f"Received session token: {json_resp.get('access_token', 'Invalid Access Token')}. Token "
+                         f"expires at {datetime.now() + timedelta(seconds=json_resp.get('expires_in', 0.0))}")
+                self.log(f"Received refresh token: {json_resp.get('refresh_token', 'Invalid Refresh Token')}")
+                self.log(f"Auth Message was: {json_resp.get('message', 'Invalid Message')}")
                 self._access_token = json_resp.get('access_token', None)
                 self._refresh_token = json_resp.get('refresh_token', None)
                 self._session_token_timeout = datetime.now() + timedelta(seconds=json_resp.get("expires_in", 0.0))
             except JSONDecodeError:
-                FortiSASE.log(f"Failed to get access token. Received JSON Decode Error when requesting information "
-                         f"from {oauth_token_path}", self._logger, self._logger.level)
+                self.log(f"Failed to get access token. Received JSON Decode Error when requesting information "
+                         f"from {oauth_token_path}")
                 self._access_token = None
                 self._refresh_token = None
                 self._session_token_timeout = FortiSASE._get_min_datetime()
         else:
-            FortiSASE.log(f"A request to get an oauth token was made but conditions are not appropriate.",
-                          self._logger, self._logger.level)
+            self.log(f"A request to get an oauth token was made but conditions are not appropriate.")
 
     def _get_token_from_file(self, file_path: str) -> None:
         if os.path.isfile(file_path):
@@ -324,14 +307,14 @@ class FortiSASE(object):
                     for line in f.readlines():
                         if "apiId" in line:
                             self._apiId = line.split(":")[1].strip()
-                            FortiSASE.log(f"Retrieved apiId from {file_path}", self._logger, self._logger.level)
+                            self.log(f"Retrieved apiId from {file_path}")
                             self._access_token_is_hard_token = False
                         elif "password" in line:
                             self._apiPassword = line.split(":")[1].strip()
-                            FortiSASE.log(f"Retrieved api password from {file_path}", self._logger, self._logger.level)
+                            self.log(f"Retrieved api password from {file_path}")
                             break
                         else:
-                            FortiSASE.log(f"Retrieving token from {file_path}", self._logger, self._logger.level)
+                            self.log(f"Retrieving token from {file_path}")
                             self._access_token = line
                             self._session_token_timeout = FortiSASE._get_min_datetime()
                             self._access_token_is_hard_token = True
@@ -339,11 +322,9 @@ class FortiSASE(object):
                 if not self._access_token_is_hard_token:
                     self._get_oauth_token()
             except OSError:
-                FortiSASE.log(f"Received an OSError when attempting to open file {file_path}", self._logger,
-                              self._logger.level)
+                self.log(f"Received an OSError when attempting to open file {file_path}")
         else:
-            FortiSASE.log(f"Received an invalid file path {file_path} to access token information", self._logger,
-                          self._logger.level)
+            self.log(f"Received an invalid file path {file_path} to access token information")
 
     def get_token(self, token_provided: str) -> None:
         # returns a token string as well as if this is an IAM session that will have a timeout value
@@ -357,7 +338,7 @@ class FortiSASE(object):
             self._access_token_is_hard_token = False
         else:
             # assuming the string sent in is the hard coded token
-            FortiSASE.log(f"Setting token provided in login request as access token", self._logger, self._logger.level)
+            self.log(f"Setting token provided in login request as access token")
             self._access_token = token_provided
             self._access_token_is_hard_token = True
             self._session_token_timeout = FortiSASE._get_min_datetime()
@@ -370,14 +351,13 @@ class FortiSASE(object):
             body["client_id"] = "FortiSASE"
             body["token"] = self._access_token
             if not self._access_token_is_hard_token:
-                FortiSASE.log(f"Making revocation attempt to revoke current token", self._logger, self._logger.level)
+                self.log(f"Making revocation attempt to revoke current token")
                 resp = self.sase_session.post(oauth_token_path, headers=self._headers, json=body)
                 if resp.status_code == 200:
-                    FortiSASE.log(f"Revoked token successfully", self._logger, self._logger.level)
+                    self.log(f"Revoked token successfully")
                 else:
-                    FortiSASE.log(f"Revocation of current token was unsuccessful. This is not an error message, "
-                                  f"possibly the token was already timed out or not valid", self._logger,
-                                  self._logger.level)
+                    self.log(f"Revocation of current token was unsuccessful. This is not an error message, possibly "
+                             f"the token was already timed out or not valid")
         self._refresh_token = None
         self._access_token = None
         self._session_token_timeout = FortiSASE._get_min_datetime()
@@ -422,7 +402,7 @@ class FortiSASE(object):
         if self._access_token is None:
             msg = (f"A request was made to perform a {method} to the endpoint {self._url} on a FortiSASE "
                    f"instance without a valid access token being available.")
-            FortiSASE.log(msg, self._logger, logging.CRITICAL)
+            self.log(msg, log_level=logging.CRITICAL)
             self.req_resp_object.error_msg = msg
             self.dprint()
             return True, msg
@@ -455,7 +435,7 @@ class FortiSASE(object):
         except:
             # todo: add exceptions
             msg = "Exception caught"
-            FortiSASE.log(msg, self._logger, logging.ERROR)
+            self.log(msg, log_level=logging.ERROR)
             self.req_resp_object.error_msg = msg
             self.dprint()
             return -1, msg
