@@ -1,3 +1,4 @@
+import asyncio
 import aiologger
 from aiologger.levels import LogLevel
 import requests
@@ -128,16 +129,16 @@ class FortiSASE(object):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     @staticmethod
-    def log(msg: str, logger: logging.Logger | aiologger.Logger | None = None,
-                log_level: int | LogLevel = 0) -> None:
+    def log(msg: str, logger: logging.Logger | None = None, log_level: int = 0) -> None:
         if logger is None:
             return
-        if isinstance(logger, logging.Logger):
-            logger.log(log_level, msg)
-        elif isinstance(logger, aiologger.Logger):
-            logger._log(LogLevel.INFO if log_level == 0 else log_level, msg, None)
-        else:
+        logger.log(log_level, msg)
+
+    @staticmethod
+    async def async_log(msg: str, logger: aiologger.Logger | None = None, log_level: LogLevel = LogLevel.NOTSET) -> None:
+        if logger is None:
             return
+        await logger._log(LogLevel.INFO if log_level == LogLevel.NOTSET else log_level, msg, None)
 
     def _get_base_url(self) -> str:
         # method here only to provide a means to have different base_urls in the future
